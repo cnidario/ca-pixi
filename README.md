@@ -1,6 +1,6 @@
 ![Imagen de ejemplo](/imgs/example1.png)
 
-Implementación de autómata celular sencillo en Javascript.
+Implementación de autómata celular sencillo en Javascript. La renderización es llevada a través de [PixiJS](http://www.pixijs.com/)
 Se ha propuesto su utilización en generación procedural de cuevas en 2 dimensiones.
 
 Artículos al respecto:
