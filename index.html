@@ -6,12 +6,27 @@
     <title>Document</title>
     <script src="pixi.min.js"></script>
     <style>
-        canvas {
+        body {
+            background-color: #e8d5a4;
+        }
+        #content {
             margin: 0 auto;
+            text-align: center;
+        }
+        canvas {
+            display: inline-block;
+            border: 3px solid #267e34;
+        }
+        #gui {
+            display: inline-block;
+            vertical-align: top;
         }
     </style>
 </head>
-<body></body>
-    <script src="utils.js"></script>
-    <script src="cave.js"></script>
+<body>
+    <div id="content"></div>
+</body>
+    <script type="text/javascript" src="utils.js"></script>
+    <script type="text/javascript" src="dat.gui.min.js"></script>
+    <script type="text/javascript" src="cave.js"></script>
 </html>

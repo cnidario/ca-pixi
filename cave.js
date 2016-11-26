@@ -1,15 +1,16 @@
 var renderer, stage;
 function start() {
-    renderer = PIXI.autoDetectRenderer(800, 600, {backgroundColor : 0x1099bb});
+    renderer = PIXI.autoDetectRenderer(600, 600, {backgroundColor : 0x1099bb});
     renderer.smoothProperty = true;
     stage = new PIXI.Container();
-    document.body.appendChild(renderer.view);
+    document.getElementById('content').appendChild(renderer.view);
     (function() {
         init();
 
         var then = Date.now();
         var fps = 30;
         var interval = 1000/fps;
+        //main loop
         (function draw() {
             requestAnimationFrame(draw);
             now = Date.now();
@@ -22,7 +23,16 @@ function start() {
         })();
     })();
 }
-/**** State logic ***/
+/**** State logic ****
+
+Grid
+Matriz bidimensional, cuando se le pide un valor fuera de rango devuelve uno por defecto
+    + cons(rows, cols, out_of_bounds_value)
+    + init(fn i, j -> x)
+    + get(i, j) -> x
+    + set(i, j, x) -> void
+    + clone() -> Grid
+*/
 var Grid = function(rows, cols, outvalue) {
     this.rows = rows;
     this.cols = cols;
@@ -52,10 +62,19 @@ Grid.prototype.clone = function() {
     o.data = this.data.slice();
     return o;
 };
+/**
+CellularAutomata
+Autómata celular
+    + cons(Grid, (i, j, x, Grid) -> x)
+    + reset() -> ()
+    + step() -> ()
+    + end() -> Bool
+    + step_count :: Int
+*/
 // fn transitionfn(i, j, value, grid)
 var CellularAutomata = function(grid, transitionfn) {
     this.step_count = 0;
-    this.end = false;
+    this.isEnd = false;
     this.grid = grid;
     this.transitionfn = transitionfn;
 };
@@ -77,12 +96,23 @@ CellularAutomata.prototype.step = function() {
         this.step_count++;
     }
     else
-        this.end = true;
+        this.isEnd = true;
 };
-/**** !END State logic ***/
+CellularAutomata.prototype.end = function() {
+    return this.isEnd;
+};
+/**** !END State logic ****/
 
-/**** View State ***/
-var CAViewState = function(rows, cols, tw, th, cellTexs, time) {
+/**** View State ****
+
+CAViewState
+Renderiza/actualiza/controla un autómata celular
+    + cons(rows, cols, tile_width, tile_height, cell_textures, update_interval)
+    + updateNow(CallularAutomata) -> ()
+    + update(CellularAutomata, dt) -> ()
+    + stage :: PIXI.Container
+*/
+var CAViewState = function(rows, cols, tw, th, cellTexs, time, steps) {
     this.time = time;
     this.elapsed = 0;
     this.rows = rows;
@@ -90,13 +120,15 @@ var CAViewState = function(rows, cols, tw, th, cellTexs, time) {
     this.tw = tw;
     this.th = th;
     this.cellTexs = cellTexs;
+    this.steps = steps;
+    this.step_count = 0;
     this.tiles = [];
     this.stage = new PIXI.Container();
     for (var i = 0; i < rows; i++) {
         for (var j = 0; j < cols; j++) {
             var spr = new PIXI.Sprite();
-            spr.x = j * th;
-            spr.y = i * tw;
+            spr.x = j * tw;
+            spr.y = i * th;
             this.tiles.push(spr);
             this.stage.addChild(spr);
         }
@@ -111,6 +143,7 @@ CAViewState.prototype.updateNow = function(ca) {
             this.tiles[ix].texture = this.cellTexs[val];
         }
     }
+    this.step_count++;
 };
 CAViewState.prototype.update = function(ca, dt) {
     this.elapsed += dt;
@@ -119,40 +152,96 @@ CAViewState.prototype.update = function(ca, dt) {
         this.updateNow(ca);
     }
 };
-/**** !END View State ***/
+CAViewState.prototype.end = function() {
+    return this.step_count >= this.steps;
+};
 
+/**** !END View State ****/
 
 var game = {
-    livep : 0.5,
-    rows: 60, cols: 60, sz: 10
+    initLiveProbability : 0.45,
+    rows: 60, cols: 60,
+    //colors: ['#17216a', '#af3636'],
+    deadColor: '#17216a',
+    aliveColor: '#af3636',
+    steps: 5,
+    update_interval: 100,
+    survivalThreshold: 4,
+    birthThreshold: 5
 };
+var numAliveNeighbours = function(i, j, grid) {
+    return grid.get(i-1, j-1) + grid.get(i-1, j) + grid.get(i-1, j+1) +
+            grid.get(i, j-1) + grid.get(i, j+1) +
+            grid.get(i+1, j-1) + grid.get(i+1, j) + grid.get(i+1, j+1);
+}
 var trans = function(i, j, x, grid) {
-    var count = grid.get(i-1, j-1) + grid.get(i-1, j) + grid.get(i-1, j+1) +
-                grid.get(i, j-1) + grid.get(i, j+1) +
-                grid.get(i+1, j-1) + grid.get(i+1, j) + grid.get(i+1, j+1);
-    return ((x == 1 && count >= 3) || (count >= 6))? 1 : 0;
+    var count = numAliveNeighbours(i, j, grid);
+    return ((x == 1 && count >= game.survivalThreshold) ||
+            (x == 0 && count >= game.birthThreshold))*1;
 };
-var ca, grid, cellTexs, caView;
+var ca, grid, caView;
 
-function genCellTex(col, n) {
+function genCellTex(col, w, h) {
     var g = new PIXI.Graphics();
     g.beginFill(col);
-    g.drawRect(0, 0, n, n);
+    g.drawRect(0, 0, w, h);
     return renderer.generateTexture(g);
 }
-function init() {
+function restartGame() {
     grid = new Grid(game.rows, game.cols, 1);
-    grid.init(function() { return Math.random() > game.livep ? 0 : 1; });
+    grid.init(function() { return (Math.random() <= game.initLiveProbability)*1;});
     ca = new CellularAutomata(grid, trans);
 
-    cellTexs = [genCellTex(0x17216a, game.sz), genCellTex(0xaf3636, game.sz)];
-    caView = new CAViewState(game.rows, game.cols, game.sz, game.sz, cellTexs, 650);
+    var cellTexs = [];
+    var colors = [game.deadColor, game.aliveColor];
+    var sz1 = Math.ceil(renderer.width / game.cols),
+        sz2 = Math.ceil(renderer.height / game.rows);
+    for (var i = 0; i < colors.length; i++) {
+        cellTexs[i] = genCellTex(('0x'+ colors[i].substring(1))*1, sz1, sz2);
+    }
+    caView = new CAViewState(game.rows, game.cols, sz1, sz2, cellTexs,
+        game.update_interval, game.steps);
 }
-var leftkey = keyboard(37), upkey = keyboard(38), rightkey = keyboard(39), downkey = keyboard(40),
-    zkey = keyboard(90), xkey = keyboard(88);
+function init() {
+    restartGame();
+    var timerID = undefined;
+    var doRestart = function() {
+        clearInterval(timerID);
+        timerID = undefined;
+        restartGame();
+    };
+    var scheduleRestart = function(t) {
+        return function() {
+            if(timerID !== undefined) clearInterval(timerID);
+            timerID = setInterval(doRestart, t);
+        };
+    };
+    var gui = new dat.GUI({ autoPlace: false });
+    var c;
+    c = gui.add(game, 'initLiveProbability', 0, 1).step(0.05);
+    c.onChange(scheduleRestart(800));
+    c = gui.add(game, 'rows', 3, 200).step(1);
+    c.onChange(scheduleRestart(800));
+    c = gui.add(game, 'cols', 3, 200).step(1);
+    c.onChange(scheduleRestart(800));
+    c = gui.addColor(game, 'deadColor');
+    c.onChange(scheduleRestart(800));
+    c = gui.addColor(game, 'aliveColor');
+    c.onChange(scheduleRestart(800));
+    c = gui.add(game, 'steps', 1, 100).step(1);
+    c.onChange(scheduleRestart(800));
+    c = gui.add(game, 'update_interval', 0, 2000).step(100);
+    c.onChange(scheduleRestart(800));
+    c = gui.add(game, 'survivalThreshold', 0, 8).step(1);
+    c.onChange(scheduleRestart(800));
+    c = gui.add(game, 'birthThreshold', 0, 8).step(1);
+    c.onChange(scheduleRestart(800));
+    document.getElementById('content').appendChild(gui.domElement);
+    gui.domElement.setAttribute('id', 'gui');
+}
 
 function update(dt) {
-    if(!ca.end)
+    if(!caView.end() && !ca.end())
         caView.update(ca, dt);
 }
 function render() {
